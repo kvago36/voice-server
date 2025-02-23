@@ -1,0 +1,18 @@
+[package]
+name = "voice-server"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+actix-web = "4"
+actix-web-actors = "4"
+actix = "0.13"
+tokio = { version = "1", features = ["full"] }
+tonic-build = "0.12.3"
+tonic = { version = "0.12.3" , features = ["transport","tls","tls-roots","tls-webpki-roots"]}
+prost = "0.13.5"
+prost-types = "0.13.5"
+futures = "0.3.31"
+
+[build-dependencies]
+tonic-build = "0.12.3"
