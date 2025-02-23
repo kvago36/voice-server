@@ -11,7 +11,7 @@
 mkdir -p proto
 cd proto
 
-git clone https://github.com/yandex-cloud/api.git yandex-cloud
+git clone https://github.com/yandex-cloud/api.git
 
 git clone https://github.com/googleapis/googleapis.git
 ```
