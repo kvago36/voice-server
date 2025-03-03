@@ -1,108 +1,91 @@
-use std::pin::Pin;
-use std::task::Poll;
 use actix::prelude::*;
-use actix_web::{App, Error, HttpRequest, HttpResponse, HttpServer, web};
-use actix_web_actors::ws;
-use futures::stream;
-use tonic::client::Grpc;
-use tonic::transport::channel::{Channel};
-use tonic::service::{Interceptor};
-use tonic::Status;
-use tonic::transport::{Body};
-// {
-// "id": "ai-speechkit",
-// "address": "transcribe.api.cloud.yandex.net:443"
-// },
+use actix_session::{SessionMiddleware, storage::CookieSessionStore};
+use actix_web::{App, HttpServer, cookie::Key, web};
+use dotenv::dotenv;
+use futures_util::{SinkExt, StreamExt as _};
+use libsql::Builder;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use std::env;
+use tonic::IntoRequest;
+use tonic::service::Interceptor;
+use tonic::transport::Body;
 
-// id каталога b1g1a228bcepdtc37q7j
+mod handlers;
+mod models;
+mod session;
+mod state;
+mod ws;
 
-// y0__xDRku_EBxjB3RMg0tymrBLzriFcICRVXmgRNGBQUpUIVuXZvg
-
-// {
-// "iamToken": "t1.9euelZqXnZPNzciWi5fLlJCXnZHOnO3rnpWaj5rJiZOSlZqcnIvNy5iUlcbl8_c2BBpC-e82Hkxx_d3z93YyF0L57zYeTHH9zef1656VmpKVx8ydlIrHzsibzpzPl8eU7_zF656VmpKVx8ydlIrHzsibzpzPl8eU.W6e0G8cvv067FNhcolUcKG0Kkaef7OAJ5f7YWhA8G1T8uAHUWYjhrIZD1aJFhPAotbZhfnUKfoN4R73F0jOuCg",
-// "expiresAt": "2025-02-22T19:33:29.567079113Z"
-// }
-
-static TOKEN: &str = "t1.9euelZqXnZPNzciWi5fLlJCXnZHOnO3rnpWaj5rJiZOSlZqcnIvNy5iUlcbl8_c2BBpC-e82Hkxx_d3z93YyF0L57zYeTHH9zef1656VmpKVx8ydlIrHzsibzpzPl8eU7_zF656VmpKVx8ydlIrHzsibzpzPl8eU.W6e0G8cvv067FNhcolUcKG0Kkaef7OAJ5f7YWhA8G1T8uAHUWYjhrIZD1aJFhPAotbZhfnUKfoN4R73F0jOuCg";
-static FOLDER_ID: &str = "b1g1a228bcepdtc37q7j";
-
+use handlers::{auth, users};
+use state::State;
+use ws::handle_message;
 
 pub mod api {
     tonic::include_proto!("speechkit.stt.v3");
 }
 
-use api::recognizer_client::RecognizerClient;
-use api::{StreamingOptions, StreamingRequest, streaming_request};
-
-/// Актор WebSocket-соединения
-struct MyWebSocket;
-
-impl Actor for MyWebSocket {
-    type Context = ws::WebsocketContext<Self>;
+#[derive(Deserialize)]
+struct TokenResponse {
+    #[serde(rename = "iamToken")]
+    iam_token: String,
+    #[serde(rename = "expiresAt")]
+    expires_at: String,
 }
 
-/// Обрабатываем сообщения от клиента
-impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for MyWebSocket {
-    fn handle(&mut self, msg: Result<ws::Message, ws::ProtocolError>, ctx: &mut Self::Context) {
-        match msg {
-            Ok(ws::Message::Binary(audio)) => {
-                println!("Получено: {:?}", audio);
-            }
-            Ok(ws::Message::Text(text)) => {
-                println!("Получено: {}", text);
-                ctx.text(format!("Эхо: {}", text)); // Отправляем эхо-ответ клиенту
-            }
-            Ok(ws::Message::Close(_)) => {
-                println!("Клиент отключился");
-            }
-            _ => (),
-        }
-    }
-}
-
-/// WebSocket-обработчик
-async fn ws_index(req: HttpRequest, stream: web::Payload) -> Result<HttpResponse, Error> {
-    ws::start(MyWebSocket, &req, stream)
-}
-
-struct MyInterceptor;
-
-impl Interceptor for MyInterceptor {
-    fn call(&mut self, mut request: tonic::Request<()>) -> Result<tonic::Request<()>, Status> {
-        request.metadata_mut().insert("authorization", TOKEN.parse().unwrap());
-        request.metadata_mut().insert("x-folder-id", FOLDER_ID.parse().unwrap());
-        // println!("{:?}", request.metadata());
-        Ok(request)
-    }
-}
-
-/// Главный сервер
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    let channel = tonic::transport::Endpoint::new("https://stt.api.cloud.yandex.net:443").unwrap().connect().await.unwrap();
+    dotenv().ok();
 
-    let mut client = RecognizerClient::with_interceptor(
-        channel,
-        MyInterceptor {},
-    );
+    let oauth_token = env::var("OAUTH_TOKEN").unwrap().to_string();
+    let folder_id = env::var("FOLDER_ID").unwrap().to_string();
 
-    // Создаем поток запросов
-    let requests = stream::iter(vec![
-        StreamingRequest {
-            event: Some(streaming_request::Event::SessionOptions(
-                StreamingOptions::default()
-            ))
-        }
-    ]);
-
-    let response = client.recognize_streaming(requests).await.unwrap();
-
-    println!("response: {:?}", response.into_inner().message().await.unwrap());
-
-    Ok(())
-
-    // HttpServer::new(|| App::new().route("/ws", web::get().to(ws_index)))
-    //     .bind("127.0.0.1:8080")?
-    //     .run()
+    let mut token = Some("t1.9euelZrGkpyUycmcxp2Ni5bOzJqMke3rnpWaj5rJiZOSlZqcnIvNy5iUlcbl8_cKFwBC-e9kIHhM_d3z90pFfUH572QgeEz9zef1656VmpyUz5uSxpmRmZzOxo-Qz42X7_zF656VmpyUz5uSxpmRmZzOxo-Qz42X.XeXVbwExKJiJE7UTovyL-1gYyq6Vu22onaXSImXJ1xEv36_VKmwjr0bJhGN-NitWu5rwQzuWgMJgEd6Rnv4PCg".to_string());
+    // let url = "https://iam.api.cloud.yandex.net/iam/v1/tokens";
+    // let reqwest_client = reqwest::Client::new();
+    // let res = reqwest_client.post(url)
+    //     .body(json!({ "yandexPassportOauthToken": oauth_token }).to_string())
+    //     .send()
     //     .await
+    //     .unwrap();
+    //
+    // if res.status() == 200 {
+    //     let data = res.json::<TokenResponse>().await.unwrap();
+    //     token = Some(data.iam_token);
+    // };
+    //
+    // println!("{:?}", token);
+
+    let db_url = "libsql://the-krusty-krab-branch-001-kvago.turso.io";
+    let db_token = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJleHAiOjE3NDEzNjA5OTEsImlhdCI6MTc0MDg0MjU5MSwiaWQiOiI0NWQyNzFlYy1hY2IzLTQ0OTktODQ3My1jYjRkMTA5MDI1NTgifQ.0I7XlWnn6GYLwT4bhkFD1Txo1JEUm94YIO2KxDbq4gjGXtZp9NX6aPX3tZ-4FrDw3bQTtECjBSHvT77yLieFCA";
+
+    let db = Builder::new_remote(db_url.to_string(), db_token.to_string())
+        .build()
+        .await
+        .unwrap();
+    let conn = db.connect().unwrap();
+
+    let cookie_key = Key::generate();
+
+    HttpServer::new(move || {
+        App::new()
+            .app_data(web::Data::new(State::new(
+                conn.clone(),
+                token.as_ref().unwrap().clone(),
+                folder_id.to_string(),
+            )))
+            .service(
+                web::scope("/api")
+                    .configure(auth::auth::auth_config)
+                    .configure(users::users::users_config),
+            )
+            .wrap(SessionMiddleware::new(
+                CookieSessionStore::default(),
+                cookie_key.clone(),
+            ))
+            .route("/ws", web::get().to(handle_message))
+    })
+    .bind("127.0.0.1:8080")?
+    .run()
+    .await
 }
