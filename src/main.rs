@@ -1,23 +1,27 @@
 use actix::prelude::*;
 use actix_session::{SessionMiddleware, storage::CookieSessionStore};
+use actix_web::body::MessageBody;
 use actix_web::{App, HttpServer, cookie::Key, web};
 use dotenv::dotenv;
-use futures_util::{SinkExt, StreamExt as _};
-use libsql::Builder;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use sqlx::Executor;
+use sqlx::migrate::Migrate;
+use sqlx_postgres::PgPool;
 use std::env;
 use tonic::IntoRequest;
 use tonic::service::Interceptor;
 use tonic::transport::Body;
 
 mod handlers;
+mod middlewares;
 mod models;
 mod session;
 mod state;
 mod ws;
 
+use crate::state::TokenInfo;
 use handlers::{auth, users};
+use middlewares::stt::YaCloud;
 use state::State;
 use ws::handle_message;
 
@@ -25,55 +29,52 @@ pub mod api {
     tonic::include_proto!("speechkit.stt.v3");
 }
 
-#[derive(Deserialize)]
-struct TokenResponse {
-    #[serde(rename = "iamToken")]
-    iam_token: String,
-    #[serde(rename = "expiresAt")]
-    expires_at: String,
-}
-
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     dotenv().ok();
 
-    let oauth_token = env::var("OAUTH_TOKEN").unwrap().to_string();
-    let folder_id = env::var("FOLDER_ID").unwrap().to_string();
+    let ya_cloud_url = env::var("YA_CLOUD_URL").expect("Cant find .env in YA_CLOUD_URL");
 
-    let mut token = Some("t1.9euelZrGkpyUycmcxp2Ni5bOzJqMke3rnpWaj5rJiZOSlZqcnIvNy5iUlcbl8_cKFwBC-e9kIHhM_d3z90pFfUH572QgeEz9zef1656VmpyUz5uSxpmRmZzOxo-Qz42X7_zF656VmpyUz5uSxpmRmZzOxo-Qz42X.XeXVbwExKJiJE7UTovyL-1gYyq6Vu22onaXSImXJ1xEv36_VKmwjr0bJhGN-NitWu5rwQzuWgMJgEd6Rnv4PCg".to_string());
-    // let url = "https://iam.api.cloud.yandex.net/iam/v1/tokens";
-    // let reqwest_client = reqwest::Client::new();
-    // let res = reqwest_client.post(url)
-    //     .body(json!({ "yandexPassportOauthToken": oauth_token }).to_string())
-    //     .send()
-    //     .await
-    //     .unwrap();
-    //
-    // if res.status() == 200 {
-    //     let data = res.json::<TokenResponse>().await.unwrap();
-    //     token = Some(data.iam_token);
-    // };
-    //
-    // println!("{:?}", token);
+    let oauth_token = env::var("OAUTH_TOKEN").expect("Cant find .env in OAUTH_TOKEN");
+    let folder_id = env::var("FOLDER_ID").expect("Cant find .env in FOLDER_ID");
 
-    let db_url = "libsql://the-krusty-krab-branch-001-kvago.turso.io";
-    let db_token = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJleHAiOjE3NDEzNjA5OTEsImlhdCI6MTc0MDg0MjU5MSwiaWQiOiI0NWQyNzFlYy1hY2IzLTQ0OTktODQ3My1jYjRkMTA5MDI1NTgifQ.0I7XlWnn6GYLwT4bhkFD1Txo1JEUm94YIO2KxDbq4gjGXtZp9NX6aPX3tZ-4FrDw3bQTtECjBSHvT77yLieFCA";
+    let db_url = env::var("DB_URL").expect("Cant find DB_URL in .env");
 
-    let db = Builder::new_remote(db_url.to_string(), db_token.to_string())
-        .build()
-        .await
-        .unwrap();
-    let conn = db.connect().unwrap();
+    let pool = PgPool::connect(&db_url).await.unwrap();
+
+    let users_query = sqlx::query(
+        "CREATE TABLE IF NOT EXISTS users (
+            id SERIAL PRIMARY KEY,
+            username VARCHAR(50) NOT NULL UNIQUE,
+            texts_count INT NOT NULL DEFAULT 0,
+            created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP)",
+    );
+
+    let texts_query = sqlx::query(
+        "CREATE TABLE IF NOT EXISTS texts (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                content TEXT NOT NULL,
+                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+            );",
+    );
+
+    pool.execute(users_query).await.unwrap();
+    pool.execute(texts_query).await.unwrap();
 
     let cookie_key = Key::generate();
 
+    let token_info = TokenInfo::from_file("./token.json");
+    let mut state = State::new(&ya_cloud_url, pool, oauth_token, folder_id, token_info);
+
+    state.update_token().await.unwrap();
+
+    let app_state = web::Data::new(state);
+
     HttpServer::new(move || {
         App::new()
-            .app_data(web::Data::new(State::new(
-                conn.clone(),
-                token.as_ref().unwrap().clone(),
-                folder_id.to_string(),
-            )))
+            .app_data(app_state.clone())
+            .route("/ws", web::get().to(handle_message).wrap(YaCloud))
             .service(
                 web::scope("/api")
                     .configure(auth::auth::auth_config)
@@ -83,9 +84,8 @@ async fn main() -> std::io::Result<()> {
                 CookieSessionStore::default(),
                 cookie_key.clone(),
             ))
-            .route("/ws", web::get().to(handle_message))
     })
-    .bind("127.0.0.1:8080")?
+    .bind("127.0.0.1:8000")?
     .run()
     .await
 }

@@ -12,17 +12,16 @@ use crate::api::{
 };
 use crate::api::{StreamingOptions, StreamingRequest, streaming_request};
 
+use crate::State;
 use actix::prelude::*;
 use actix_web::{HttpRequest, HttpResponse, error::Error, rt, web};
-use actix_ws::Message;
+use actix_ws::{Message, Session};
 use futures_util::{SinkExt, StreamExt as _};
 use tokio::sync::mpsc;
+use tonic::Status;
 use tonic::codegen::tokio_stream::wrappers::ReceiverStream;
 use tonic::service::Interceptor;
 use tonic::transport::Body;
-use tonic::{Status};
-
-use crate::state::State;
 
 struct MyInterceptor {
     pub folder_id: String,
@@ -56,13 +55,11 @@ pub async fn handle_message(
         .await
         .unwrap();
 
-    let mut client = RecognizerClient::with_interceptor(
-        channel,
-        MyInterceptor {
-            folder_id: data.folder_id.clone(),
-            token: data.token.clone(),
-        },
-    );
+    let token = data.token_info.lock().await.get_token();
+    let folder_id = data.folder_id.clone();
+
+    let mut client =
+        RecognizerClient::with_interceptor(channel, MyInterceptor { folder_id, token });
 
     let options = StreamingOptions {
         recognition_model: Some(RecognitionModelOptions {

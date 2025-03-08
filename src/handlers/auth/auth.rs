@@ -29,6 +29,6 @@ pub fn auth_config(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/auth")
             .route("/login", web::post().to(auth))
-            .route("/logout", web::post().to(auth)),
+            .route("/logout", web::post().to(logout)),
     );
 }

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-actix-web = "4"
+actix-web = "4.9.0"
 actix = "0.13"
 tonic-build = "0.12.3"
 tonic = { version = "0.12.3" , features = ["transport","tls","tls-roots","tls-webpki-roots"]}
@@ -19,8 +19,11 @@ futures-util = "0.3.31"
 actix-ws = "0.3.0"
 bytes = "1.10.0"
 tokio = { version = "1.43.0", features = ["fs"] }
-libsql = "0.6.0"
 actix-session = { version = "0.10.1", features = ["cookie-session"] }
+chrono = "0.4.40"
+sqlx = { version = "0.8.3", features = ["migrate", "runtime-tokio"] }
+sqlx-postgres = { version = "0.8.3", features = ["chrono"] }
+log = "0.4.25"
 
 [build-dependencies]
 tonic-build = "0.12.3"
