@@ -18,13 +18,13 @@ use log::info;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sqlx::{Encode, Executor, Row, query};
+use tonic::codegen::tokio_stream::StreamExt;
 use tonic::IntoRequest;
 
 #[derive(Deserialize)]
 struct CreateUser {
     username: String,
 }
-
 #[derive(Deserialize)]
 struct UpdateUser {
     text: String,
@@ -85,7 +85,7 @@ async fn get_user_data(
         texts.push(UserText { content, created_at: created_at.to_string() });
     }
 
-    let json = json!({ "text": texts });
+    let json = json!({ "texts": texts });
 
     Ok(HttpResponse::Ok().json(json))
 }
@@ -97,27 +97,52 @@ async fn create_user(
     session: Session,
 ) -> Result<HttpResponse, Error> {
     let pool = &data.pool;
-    let query = sqlx::query("INSERT INTO users (username) VALUES ($1)").bind(&info.username);
-    let result = pool.execute(query).await.unwrap();
 
-    if result.rows_affected() > 0 {
-        let json = json!({ "username": &info.username });
+    let user_row = sqlx::query("SELECT * from users WHERE username = $1").bind(&info.username).fetch_one(pool).await;
 
-        session.insert("session_id", &json)?;
-        Ok(HttpResponse::Ok().json(json))
-    } else {
+    if let Ok(user) = user_row {
+        let user_id: i32 = user.get("id");
+        let user_json = json!({ "user_id": user_id, "username": info.username });
+
+        session.insert("session_id", &user_json)?;
+
+        return Ok(HttpResponse::Ok().json(user_json))
+    };
+
+    let user_query = sqlx::query("INSERT INTO users (username) VALUES ($1) RETURNING id").bind(&info.username).fetch_one(pool).await;
+
+    user_query.map_or_else(|e| {
         Ok(HttpResponse::new(StatusCode::NOT_FOUND))
-    }
+    }, |user| {
+        let user_id: i32 = user.get("id");
+        let user_json = json!({ "user_id": user_id, "username": info.username });
+
+        session.insert("session_id", &user_json)?;
+
+        Ok(HttpResponse::Ok().json(user_json))
+    })
 }
 
 #[get("/")]
 async fn get_users(data: web::Data<State>, request: HttpRequest) -> Result<HttpResponse, Error> {
     let pool = &data.pool;
-    let query = sqlx::query("SELECT * FROM users ORDER BY created_at DESC");
-    let mut result = pool.execute(query).await.unwrap();
-    // let mut users = Vec::new();
+    let mut users = Vec::new();
+    let mut users_stream = sqlx::query("SELECT * FROM users ORDER BY created_at DESC LIMIT 50").fetch(pool);
 
-    Ok(HttpResponse::new(StatusCode::OK))
+    while let Some(row) = users_stream.next().await {
+        if let Ok(user) = row {
+            let id: i64 = user.get("id");
+            let user_name: String = user.get("user_name");
+            let texts_count: i64 = user.get("texts_count");
+            let created_at: DateTime<Utc> = user.get("created_at");
+
+            users.push(User::new(id, user_name, texts_count, created_at.to_string()));
+        }
+    }
+
+    let users_json = json!({ "users": users });
+
+    Ok(HttpResponse::Ok().json(users_json))
 }
 
 // struct MyGuard;

@@ -24,6 +24,7 @@ chrono = "0.4.40"
 sqlx = { version = "0.8.3", features = ["migrate", "runtime-tokio"] }
 sqlx-postgres = { version = "0.8.3", features = ["chrono"] }
 log = "0.4.25"
+actix-cors = "0.7.0"
 
 [build-dependencies]
 tonic-build = "0.12.3"

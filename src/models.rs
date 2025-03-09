@@ -1,18 +1,21 @@
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize)]
 pub struct User {
-    id: u64,
-    name: String,
-    texts_count: u64,
+    id: i64,
+    user_name: String,
+    texts_count: i64,
+    created_at: String,
 }
 
 impl User {
-    pub fn new(id: u64, name: String, texts_count: u64) -> Self {
+    pub fn new(id: i64, user_name: String, texts_count: i64, created_at: String) -> Self {
         User {
             id,
-            name,
+            user_name,
             texts_count,
+            created_at,
         }
     }
 }

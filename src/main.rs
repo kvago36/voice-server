@@ -1,7 +1,9 @@
 use actix::prelude::*;
 use actix_session::{SessionMiddleware, storage::CookieSessionStore};
 use actix_web::body::MessageBody;
+use actix_web::http::header;
 use actix_web::{App, HttpServer, cookie::Key, web};
+use actix_cors::Cors;
 use dotenv::dotenv;
 use serde::{Deserialize, Serialize};
 use sqlx::Executor;
@@ -73,6 +75,14 @@ async fn main() -> std::io::Result<()> {
 
     HttpServer::new(move || {
         App::new()
+            .wrap(Cors::default()
+                .allowed_origin("http://localhost:3000")
+                .allowed_methods(vec!["GET", "POST"])
+                .allowed_headers(vec![header::AUTHORIZATION, header::ACCEPT])
+                .allowed_header(header::CONTENT_TYPE)
+                .max_age(3600)
+                .supports_credentials()
+            )
             .app_data(app_state.clone())
             .route("/ws", web::get().to(handle_message).wrap(YaCloud))
             .service(
