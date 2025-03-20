@@ -1,0 +1,1 @@
+SELECT users.id AS user_id, users.username AS username, COUNT(texts.id) AS texts_count, users.created_at as created_at FROM users LEFT JOIN texts ON users.id = texts.user_id GROUP BY users.id, users.username, users.created_at ORDER BY texts_count DESC LIMIT 3

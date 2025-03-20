@@ -44,22 +44,9 @@ async fn main() -> std::io::Result<()> {
 
     let pool = PgPool::connect(&db_url).await.unwrap();
 
-    let users_query = sqlx::query(
-        "CREATE TABLE IF NOT EXISTS users (
-            id SERIAL PRIMARY KEY,
-            username VARCHAR(50) NOT NULL UNIQUE,
-            texts_count INT NOT NULL DEFAULT 0,
-            created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP)",
-    );
+    let users_query = sqlx::query(include_str!("migrations/create_users_table.sql"));
 
-    let texts_query = sqlx::query(
-        "CREATE TABLE IF NOT EXISTS texts (
-                id SERIAL PRIMARY KEY,
-                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                content TEXT NOT NULL,
-                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-            );",
-    );
+    let texts_query = sqlx::query(include_str!("migrations/create_texts_table.sql"));
 
     pool.execute(users_query).await.unwrap();
     pool.execute(texts_query).await.unwrap();
@@ -76,7 +63,7 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .wrap(Cors::default()
-                .allowed_origin("http://localhost:3000")
+                .allowed_origin("http://localhost:5173")
                 .allowed_methods(vec!["GET", "POST"])
                 .allowed_headers(vec![header::AUTHORIZATION, header::ACCEPT])
                 .allowed_header(header::CONTENT_TYPE)

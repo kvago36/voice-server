@@ -1,48 +1,76 @@
-# Project Installation Guide
 
-## Prerequisites
-- Ensure you have **Git** and **Rust** installed on your system.
-- You need to clone two repositories into the `proto/` directory: **Yandex Cloud** and **Google APIs**.
+# Voice Server
 
-## Installation Steps
+**Voice Server** is a server-side application written in **Rust** for processing and managing voice data using **WebSocket (actix-ws)**, **PostgreSQL**, and **gRPC (tonic)**.
 
-### 1. Clone the required repositories
-```sh
-mkdir -p proto
-cd proto
+## Description
 
-git clone https://github.com/yandex-cloud/api.git
+The project implements a WebSocket server for receiving audio chunks from clients, as well as a REST API for managing processing results. Speech recognition services are integrated through the **Yandex Cloud** and **Google** APIs.
 
-git clone https://github.com/googleapis/googleapis.git
-```
+### Key Components:
+- **Actix-web** – Actix Web is a powerful, pragmatic, and extremely fast web framework for Rust.
+- **Tonic** – A Rust implementation of gRPC, a high-performance, open-source, general RPC framework that prioritizes mobile and HTTP/2.
+- **sqlx** – The async SQL toolkit for Rust.
 
-### 2. Build the project
-Navigate to the root of the project and build it using Cargo:
+## Installation
 
-```sh
-cd ..  # Return to the root directory
-cargo build
-```
+### Prerequisites
+- Installed **Git**, **Rust**, **PostgreSQL**.
+- A `.env` configuration file with database connection parameters.
+- Alternatively, using docker-compose.
 
-### 3. Run the project
-To start the application, run:
+### Installation Steps
 
-```sh
-cargo run
-```
+1. **Clone the necessary repositories**
+   ```bash
+   mkdir -p proto
+   cd proto
+   git clone https://github.com/yandex-cloud/api.git
+   git clone https://github.com/googleapis/googleapis.git
+   cd ..
+   ```
+    
+2. **Set up the database**
+   ```sql
+   CREATE DATABASE postgres;
+   ```
 
-## Notes
-- Ensure that the `proto/` directory contains both cloned repositories.
-- If you encounter any issues with dependencies, try running:
+3. **Set up environment variables**
+   Create a `.env` file in the root directory:
+   ```ini
+   DATABASE_URL=postgresql://postgres:example@localhost:5432/postgres
+   YA_CLOUD_URL=your_cloud_url
+   OAUTH_TOKEN=your_oauth_token
+   FOLDER_ID=your_folder_id
+   ```
 
-```sh
-cargo clean
-cargo build
-```
+   For more information on how to obtain the **OAuth Token** and **Folder ID**, please refer to the [Yandex Cloud FAQ](https://cloud.yandex.com/docs/iam/quickstart).
 
-## Contributing
-Feel free to submit pull requests or report issues.
 
-## License
-This project is licensed under the MIT License.
+4. **Build and run the project**
+   ```bash
+   cargo build
+   cargo run
+   ```
 
+## Usage
+
+After running:
+- **WebSocket connection** is available at `ws://localhost:8000/ws`.
+- **REST API** is available at `http://localhost:PORT/8000`.
+
+## Technologies and Dependencies
+
+| Library          | Purpose |
+|------------------|---------------------------------|
+| **actix-web**    | REST API, WebSocket server |
+| **actix-ws**     | WebSocket connection support |
+| **tonic**        | gRPC client for working with APIs |
+| **prost**        | Protocol Buffers serialization |
+| **serde**        | Data serialization to JSON |
+| **serde_json**   | Working with JSON |
+| **sqlx**         | Asynchronous PostgreSQL interaction |
+| **dotenv**       | Loading environment variables |
+| **thiserror**    | Custom error definitions |
+| **log**          | Logging |
+| **env_logger**   | Logging configuration via environment |
